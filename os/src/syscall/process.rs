@@ -1,11 +1,13 @@
 //! Process management syscalls
-use core::intrinsics::size_of;
+
+use core::mem::size_of;
 
 use crate::{
     config::MAX_SYSCALL_NUM,
     mm::translated_byte_buffer,
     task::{
-        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus,
+        change_program_brk, current_user_token, exit_current_and_run_next,
+        suspend_current_and_run_next, TaskStatus,
     },
     timer::get_time_us,
 };
@@ -45,7 +47,7 @@ pub fn sys_yield() -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
     let buffers =
         translated_byte_buffer(current_user_token(), ts as *const u8, size_of::<TimeVal>());
@@ -54,10 +56,12 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
         sec: us / 1_000_000,
         usec: us % 1_000_000,
     };
-    let mut time_val_ptr = &time_val as *const u8;
-    for buffer in buffers.iter_mut() {
-        buffer.copy_from_slice(unsafe { core::slice::from_raw_parts(time_val_ptr, buffer.len()) });
-        time_val_ptr = unsafe { time_val_ptr.add(buffer.len()) };
+    let mut time_val_ptr = &time_val as *const _ as *const u8;
+    for buffer in buffers {
+        unsafe {
+            time_val_ptr.copy_to(buffer.as_mut_ptr(), buffer.len());
+            time_val_ptr = time_val_ptr.add(buffer.len());
+        }
     }
     0
 }
